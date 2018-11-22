@@ -1,0 +1,23 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Multichannel Active Noise Control system simulation tool
+% mag2db.m
+% Copyright (C) 2018  Stanislaw Wrona <st.wrona@gmail.com>
+%
+% This program is free software; you can redistribute it and/or modify
+% it under the terms of the GNU General Public License as published by
+% the Free Software Foundation; either version 2 of the License, or
+% any later version.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% The function mag2db() expresses in decibels (dB) the magnitude signals 
+% specified in y.
+%
+% Return variables:
+% ydb      - Values in decibels (dB).
+%
+% Function input variables:
+% y        - Input array.
+
+function ydb = mag2db(y)
+	ydb = 20*log10(y);
+end
