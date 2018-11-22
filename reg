@@ -1,0 +1,42 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Multichannel Active Noise Control system simulation tool
+% reg.m
+% Copyright (C) 2018  Stanislaw Wrona <st.wrona@gmail.com>
+%
+% This program is free software; you can redistribute it and/or modify
+% it under the terms of the GNU General Public License as published by
+% the Free Software Foundation; either version 2 of the License, or
+% any later version.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% The function reg() provides the vector of regressors of a given signal. 
+% If the specified samples refers to time samples n negative or equal zero,
+% the signal values are assumed to be equal zero.
+%
+% Return variables:
+% yreg     - The vector of regressors of a given signal.
+%
+% Function input variables:
+% y        - The input signal vector.
+% n        - Given time sample.
+% M        - Length of the desired vector of regressors.
+
+function yreg = reg(y,n,M)
+    s = [size(y,1) size(y,2) size(y,3)];
+	Nend = n-M+1; % Calculate how deep in the past we have to reach. Especially,
+                  % if we would have to reach for time samples negative or 
+                  % equal zero.
+
+    % If all of the time samples are positive.
+	if Nend > 0
+		yreg = y(n:-1:Nend,:,:);
+    % If some of the time samples are positive, some are non-positive (assume
+    % assume non-positive time samples to be equal zero.
+	elseif n > 0
+		yreg = [y(n:-1:1,:,:); zeros(-Nend+1,s(2),s(3))];
+    % If all the time samples are non-positive, return a zero matrix of an 
+    % appropriate size.
+	else
+		yreg = zeros(M,s(2),s(3));
+	end
+end
