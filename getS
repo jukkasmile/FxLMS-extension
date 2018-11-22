@@ -1,0 +1,52 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Multichannel Active Noise Control system simulation tool
+% getS.m
+% Copyright (C) 2018  Stanislaw Wrona <st.wrona@gmail.com>
+%
+% This program is free software; you can redistribute it and/or modify
+% it under the terms of the GNU General Public License as published by
+% the Free Software Foundation; either version 2 of the License, or
+% any later version.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% The function getS() calculates the secondary paths between secondary sources
+% and given location of sensors. Current implementation assumes the 
+% omnidirectional secondary sound sources.
+%
+% Return variables:
+% S        - Secondary paths in form of FIR filters. The length of the paths is 
+%            automatically adjusted as needed.
+%
+% Function input variables:
+% LocSen   - Sensors' locations.
+% LocAct   - Secondary sources' locations.
+% Fs       - Sampling frequency.
+
+function S = getS(LocSen,LocAct,Fs)
+    v  = 340.5;          % Speed of sound in air in [m/s].
+    Ns = size(LocSen,1); % Number of sensors.
+    Na = size(LocAct,1); % Number of secondary sources.
+
+    % Calculate the distances between secondary sources and sensors.
+    for is = 1:Ns
+        for ia = 1:Na
+            dist(is,ia) = sqrt(sum((LocAct(ia,:)-LocSen(is,:)).^2));
+        end
+    end
+    % Calculate the distance in samples instead of [m].
+	distInSamples = dist/v*Fs;
+
+    % Prepare the secondary paths matrix of necessary dimensions.
+    S = zeros(ceil(max(max(distInSamples)))+1,Ns,Na);
+
+    % The calculation of secondary paths includes interpolation and spreading 
+    % losses.
+    for is = 1:Ns
+        for ia = 1:Na
+            S(floor(distInSamples(is,ia))+1,is,ia) = (mod(distInSamples(is,ia),1))  ...
+                    /(4*pi*dist(is,ia)^2);
+            S(ceil( distInSamples(is,ia))+1,is,ia) = (1-mod(distInSamples(is,ia),1))...
+                    /(4*pi*dist(is,ia)^2);
+        end
+    end
+end
