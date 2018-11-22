@@ -1,0 +1,31 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Multichannel Active Noise Control system simulation tool
+% filter3d.m
+% Copyright (C) 2018  Stanislaw Wrona <st.wrona@gmail.com>
+%
+% This program is free software; you can redistribute it and/or modify
+% it under the terms of the GNU General Public License as published by
+% the Free Software Foundation; either version 2 of the License, or
+% any later version.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% The function filter3d() provides filtering of multiple signals through a 
+% set of FIR filters. It assumes three-dimensional matrix containing filters'
+% parameters and a two-dimensional matrix containing signals to be filtered.
+%
+% Return variables:
+% Y        - Filtered signals.
+%
+% Function input variables:
+% B        - FIR filters' parameters.
+% x        - Signals to be filtered.
+
+function y = filter3d(B,x)
+	for i = 1:size(B,2)
+	    for j = 1:size(B,3)
+            for k = 1:size(x,2)
+                y(:,i,j,k) = filter(B(:,i,j),1,x(:,k));
+            end
+        end
+    end
+end
