@@ -1,0 +1,71 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Multichannel Active Noise Control system simulation tool
+% getP.m
+% Copyright (C) 2018  Stanislaw Wrona <st.wrona@gmail.com>
+%
+% This program is free software; you can redistribute it and/or modify
+% it under the terms of the GNU General Public License as published by
+% the Free Software Foundation; either version 2 of the License, or
+% any later version.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% The function getP() calculates the primary paths to given locations.
+% Current implementation enables calculation for plane wave primary noise
+% and the omnidirectional primary noise source.
+%
+% Return variables:
+% P        - Primary paths in form of FIR filters. The length of the paths is 
+%            automatically adjusted as needed.
+%
+% Function input variables:
+% Loc      - Sensors' locations.
+% Fs       - Sampling frequency.
+% param    - Hold the angles of incidence for a plane wave or noise source 
+%            location for a omnidirectional wave.
+% ptype    - Names the type of primary noise ('planar' or 'omni').
+
+function P = getP(Loc,Fs,param,ptype)
+    v  = 340.5;       % Speed of sound in air in [m/s].
+    Ns = size(Loc,1); % Number of sensors.
+
+    % Rotation of a planar wave. In that case, param variable holds the angles.
+    if strcmp(ptype,'planar')
+        rot = eulerAnglesToRotation3d(param(1), param(2), param(3));
+        for is = 1:Ns
+            Loc(is,:) = transformPoint3d(Loc(is,:), rot);
+        end
+        dist = Loc(:,3)+1; % The value of 1 m is added to avoid negative 
+                           % distances after rotation. Depending on angles,
+                           % even higher constant might be needed to be added.
+    % Omnidirectional wave from a given location.
+    elseif strcmp(ptype,'omni')
+        dist = sqrt(sum((Loc-param).^2,2));
+                           % Calculates the distance between the noise source
+                           % location (stored in param), and sensor location.
+    else
+        disp('Unknown primary noise type to generate path. Fail!');
+        return;
+    end
+
+    % Calculate the distance in samples instead of [m].
+	distInSamples = dist/v*Fs;
+
+    % Prepare the primary paths matrix of necessary dimensions.
+    P = zeros(ceil(max(distInSamples))+1,Ns);
+
+    % The calculation of primary paths includes interpolation and spreading 
+    % losses if a omnidirectional source is chosen.
+    if strcmp(ptype,'planar')
+        for is = 1:Ns
+            P(floor(distInSamples(is))+1,is) = mod(distInSamples(is),1);
+            P(ceil( distInSamples(is))+1,is) = 1-mod(distInSamples(is),1);
+        end
+    elseif strcmp(ptype,'omni')
+        for is = 1:Ns
+            P(floor(distInSamples(is))+1,is) = mod(distInSamples(is),1)  ...
+                        /(4*pi*dist(is)^2);
+            P(ceil( distInSamples(is))+1,is) = (1-mod(distInSamples(is),1)) ...
+                        /(4*pi*dist(is)^2);
+        end
+    end
+end
