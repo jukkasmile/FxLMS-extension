@@ -1,0 +1,327 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Multichannel Active Noise Control system simulation tool
+% main.m
+% Copyright (C) 2018  Stanislaw Wrona <st.wrona@gmail.com>
+%
+% This program is free software; you can redistribute it and/or modify
+% it under the terms of the GNU General Public License as published by
+% the Free Software Foundation; either version 2 of the License, or
+% any later version.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% The purpose of this program is to simulate a multichannel Active Noise Control
+% system in a free field. The implemented control algorithms are based on 
+% the leaky normalized FxLMS. Perfect secondary paths estimation and feedback
+% cancellation is assumed.
+% The program may contain errors and there is no guarantee that it will fit 
+% your purpose. Use it at your own risk. 
+% Any comment, suggestions or improvements are welcome - please send them
+% using the email address provided above.
+%
+% This program is dedicated for Octave (version 4.0.3).
+% Usually run under GNU/Linux OS with a command:
+% $ octave main.m $EXP $ALG $LEN
+% where:
+% EXP is an id number for an experiment to run. Choose:
+%     1 for a plane wave primary noise with an incidence angle equal to 0 deg; 
+%     2 for a plane wave primary noise with an incidence angle equal to 30 deg; 
+%     3 for a moving omnidirectional noise source - moving from location 
+%       [0 1 -1] to [0 -1 -1], assuming (x, y, z) axes; 
+%     4 for two plane wave primary noises.
+% ALG is a name of chosen control algorithm (a modification of FxLMS algorithm).
+%     'collocated' - all error signals are used to adapt the control filters,
+%       but only one reference signal (and one control filter) is used per
+%       secondary sound source. 
+%     'mixed' - like 'collocated', but a single 'mixed' error signal is used  
+%       for adaptation of all control filters. The 'mixed' error signal is 
+%       obtained by summation of all control signals.
+%     'switched' - like 'collocated', but a single selected k-th error signal
+%       (k-th out of Ns error signals) is used for adaptation of all control 
+%       filters, and the sensor which provides the signal is cyclically changed
+%       (cyclically changing the k in the range from 1 to Ns).
+%     'decentralized' - like 'collocated', but each control filter is adapted 
+%       by only one error signal, provided by corresponding sensors (e.g., 
+%       1st control filter driving 1st secondary source uses only 1st error
+%       signal, 2nd control filter uses only 2nd error signal, etc.). Therefore,
+%       the overall control system consists of independent ANC cells.
+% LEN is a chosen length of simulation given in [s].
+
+% Close all figures, clear all variables, clear the console window.
+close all;
+clear all;
+clc;
+
+EXP = 1;
+ALG = 'collocated';
+LEN = 0.1;
+
+
+% Main parameters of the control algorithm.
+Fs    = 48000;    % Sampling frequency in [Hz].
+Lw    = 256;      % Length of the control filters.
+alpha = 1;        % Leakage coefficient.
+mu    = 0.01;     % Step size (for a Normalized FxLMS).
+
+% A command used to measure time of program execution.
+tic
+
+% Generate the time vector.
+t = (0:(1/Fs):LEN)'; N = length(t);
+
+% Prepare the primary noise signal.
+% Firstly, design the band-pass filter to limit the frequency range of 
+% a broad-band noise.
+B = fir1(512,[500/Fs*2 2000/Fs*2], 'bandpass'); 
+% Load previously prepared (with randn() fuction) and saved white noise signals,
+% truncate them, and filter.
+load('xori.mat');  x  = xori(1:N,1);  x  = filter(B,1,x);
+load('xori2.mat'); x2 = xori2(1:N,1); x2 = filter(B,1,x2);
+
+
+% % Define locations of sensors and actuators.
+% a = 0.05675;
+% u = 0.12060;
+% b = 1*u;
+% c = 0;
+
+a = 0.05675;
+u = 0.12060;
+b = 1*u;
+c = 0;
+% Define locations of reference microphones.
+LocRef = [0,0,0;   0,u,0;   u,0,0;   u,u,0;]; 
+Nr = size(LocRef,1);
+% Define locations of error microphones.
+LocSen = [0-c,0-c,a+b; 0-c,u+c,a+b; u+c,0-c,a+b; u+c,u+c,a+b;]; 
+Ns = size(LocSen,1);
+% Define locations of secondary sources.
+LocAct = [0,0,a;   0,u,a;   u,0,a;   u,u,a;]; 
+Na = size(LocAct,1);
+
+
+% Calculate the secondary paths based on error mics and loudspeakers 
+% locations (x,y,z) in [m].
+% All generated paths are artificial, based mainly on the distance resulting in
+% a delay and spreading losses (all sources are assumed to be omnidirectional). 
+S = getS(LocSen,LocAct,Fs);
+
+% Calculate the primary paths based on error mics locations and selected
+% type of experiment (defining the type of primary noise).
+if (EXP==1)
+    x = x*5; % Gain of the primary noise.
+    pangle = [0 0 0]; % Angles of incidence of the primary noise plane wave.
+    X = getP(LocRef,Fs,pangle,'planar'); % Reference paths.
+    P = getP(LocSen,Fs,pangle,'planar'); % Primary paths.
+    d  = filter2d(P,x); % Primary noise signals, measured by error mics.
+    xf = filter2d(X,x); % Primary noise signals, measured by ref mics.
+elseif (EXP==2)
+    x = x*5;
+    pangle = [0 0 30]; 
+    X = getP(LocRef,Fs,pangle,'planar');
+    P = getP(LocSen,Fs,pangle,'planar'); 
+    d  = filter2d(P,x); 
+    xf = filter2d(X,x);
+elseif (EXP==3)
+    x = x*100; % Gain of the primary noise.
+    plocs = [0 1 -1]; % Initial location of the noise source.
+    ploce = [0 -1 -1]; % Finishing location of the noise source.
+    for n=1:N % For all the samples in the simulation, recalculate the primary
+              % and reference paths due to moving source, and filter the signal.
+        X = getP(LocRef,Fs,(1-n/N)*plocs+(n/N)*ploce,'omni');
+        P = getP(LocSen,Fs,(1-n/N)*plocs+(n/N)*ploce,'omni');
+         d(n,:) = P' * reg(x,n,size(P,1));
+        xf(n,:) = X' * reg(x,n,size(X,1));
+    end
+elseif (EXP==4)
+    x  = x*5; % Gain of the primary noise - 1st planar wave.
+    x2 = x2*5; % Gain of the primary noise - 2nd planar wave.
+    pangle  = [0 0 45]; % Angles of incidence - 1st planar wave.
+    pangle2 = [0 15 -15]; % Angles of incidence - 2nd planar wave.
+    X  = getP(LocRef,Fs,pangle,'planar');
+    X2 = getP(LocRef,Fs,pangle,'planar');
+    P  = getP(LocSen,Fs,pangle,'planar');
+    P2 = getP(LocSen,Fs,pangle,'planar');
+    d  = filter2d(P,x) + filter2d(P2,x2);
+    xf = filter2d(X,x) + filter2d(X2,x2);
+end
+
+% Initiate the control filters with zeros.
+W = zeros(Lw,Na);
+% Calculate the filtered reference r(n) signals.
+r  = filter3d(S,xf);
+
+% Initiate vectors of control signal, output signal, and error signal.
+u  = zeros(N,Na);
+y  = zeros(N,Ns,Na);
+er = zeros(N,Ns);
+
+% Initiate the initial estimation of energy of filtered reference signals for
+% the normalization part of the FxLMS algorithm (a first order inertia is used
+% instead of directs summation of squared values). 
+ener_r = 100*ones(Ns,Na);
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Main simulation loop.
+for n=1:N
+    % Calculate the error signal e(n) = d(n) + y(n).
+    er(n,:) = d(n,:);
+    for is = 1:Ns
+        for ia = 1:Na
+            er(n,is) = er(n,is) + reg(y(:,is,ia),n-1,1);
+        end
+    end
+    % Update the control filters W(z).
+    [W ener_r] = adapt(W,ener_r,r,er,n,alpha,mu,ALG);
+
+    % Calculate the control signals u(n) = W(z) * x(n).
+    for ia = 1:Na
+        u(n,ia) = (W(:,ia)'*reg(xf(:,ia),n,Lw))';
+    end
+
+    % Calculate the output signals y(n) = S(z) * u(n).
+    for is = 1:Ns
+        for ia = 1:Na
+            y(n,is,ia) = S(:,is,ia)'*reg(u(:,ia),n,size(S,1));
+        end
+    end
+end
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Plot the results.
+% Open a new window for plots.
+% figure('Position',[720 0 720 680]);
+
+
+% Plot the primary disturbance and error signals energy in time domain.
+subplot(1,2,1); 
+% Estimate the energy of the signals in dB.
+eD = mag2db(mean(abs( d)+1e-6,2));
+eE = mag2db(mean(abs(er)+1e-6,2));
+% Filter the obtained estimates with a low-pass filter in a form of 
+% a first-order inertia.
+eD(1) = -50;
+eE(1) = -50;
+for in = 2:N
+    eD(in) = 0.998 * eD(in-1) + 0.002 * eD(in);
+    eE(in) = 0.998 * eE(in-1) + 0.002 * eE(in);
+end
+% Plot signals.
+plot(t,[eD eE],'LineWidth',2);
+ylim([-60 100]); grid on; ylabel('Variance (dB)'); xlabel('Time (s)'); 
+
+
+% Plot the frequency spectra of primary disturbance and error signals, at the
+% end of experiment (for EXP 1, 2 or 4) or in the 1/4 of its length (for
+% EXP = 3).
+nlength = 8192/2; % The frame length.
+if ((EXP==1)||(EXP==2)||(EXP==4)) % Capture a frame at the end of experiment.
+    noffset = N - nlength - 1;
+elseif (EXP==3) % Or in the 1/4 of its length.
+    noffset = round(N/4);
+end
+% Calculate the frequency spectra and smooth the characteristics in frequency 
+% domain using a moving average.
+Naf = 3; % Length of the moving average.
+for is = 1:Ns
+    D(:,is) = filter(ones(Naf,1)/Naf,1, ...
+                    mag2db(abs(fft( d(noffset:(noffset+nlength-1),is)))));
+    E(:,is) = filter(ones(Naf,1)/Naf,1, ...
+                    mag2db(abs(fft(er(noffset:(noffset+nlength-1),is)))));
+end
+% Plot the results.
+subplot(1,2,2); 
+freq = linspace(0,Fs,nlength); % Calculate the frequency vector.
+plot(freq,[mean(D,2) mean(E,2)],'LineWidth',2); 
+xlim([0 3200]); grid on; ylim([0 100]); 
+ylabel('Magnitude (dB)'); xlabel('Frequency (Hz)'); 
+
+
+% % Plot the spatial reduction levels at a selected plane (for x = 0).
+% % Be aware that this part may take some time to execute.
+% LocMap = [];
+% % Define the grid where noise reduction levels will be calculated.
+% izr = 0.0:0.025:1;
+% iyr = -0.5:0.025:0.5;
+% % Store the locations in a desired form.
+% for iz = izr
+%     for iy = iyr
+%         LocMap = [LocMap; 0 iy iz];
+%     end
+% end
+% % Prepare the vector for all the primary noise signals.
+% mapd = zeros(nlength,length(LocMap));
+% % Calculate the primary paths and filter the signals (only for a given time
+% % frame of the experiment).
+% if ((EXP==1)||(EXP==2))
+%     mapP = getP(LocMap,Fs,pangle,'planar');
+%     for n=noffset:(noffset+nlength-1)
+%         mapd(n-noffset+1,:) = mapP' * reg(x,n,size(mapP,1));
+%     end
+% elseif (EXP==3)
+%     for n=noffset:(noffset+nlength-1)
+%         mapP = getP(LocMap,Fs,(1-n/N)*plocs+(n/N)*ploce,'omni');
+%         mapd(n-noffset+1,:) = mapP' * reg(x,n,size(mapP,1));
+%     end
+% elseif (EXP==4)
+%     mapP  = getP(LocMap,Fs,pangle, 'planar');
+%     mapP2 = getP(LocMap,Fs,pangle2,'planar');
+%     for n=noffset:(noffset+nlength-1)
+%         mapd(n-noffset+1,:) = mapP'  * reg(x, n,size(mapP, 1)) + ...
+%                               mapP2' * reg(x2,n,size(mapP2,1));
+%     end
+% end
+% 
+% % Calculate the output signals y(n) at a plane.
+% mapS = getS(LocMap,LocAct,Fs);
+% mapy = zeros(nlength, length(LocMap), size(u,2));
+% for ia = 1:Na
+%     mapy(:,:,ia) = filter3d(mapS(:,:,ia),u(noffset:(noffset+nlength-1),ia));
+% end
+% mapy = sum(mapy,3);
+% 
+% % Calculate the error signals e(n) at a plane.
+% mape = mapd + mapy;
+% mapE = (reshape(mag2db(var(mape)./var(mapd)),length(iyr),length(izr)));
+% 
+% % Plot the results.
+% % subplot(8,2,[1:10]); 
+% % surf(izr,iyr,mapE);
+% % shading interp; ylim([min(iyr) max(iyr)]); xlim([min(izr) max(izr)]); 
+% % xlabel('z (m)'); ylabel('y (m)');
+% % view([0 90]); colorbar; caxis([-10 10]);
+% % toc
+% 
+% 
+% 
+% % Choose the selected signals to be saved in an auxiliary files (to be later
+% % plotted using Gnuplot - the octave plot are considered as complementary).
+% out  = [freq' mean(D,2) mean(E,2)];
+% out2 = [t eD eE d er u x];
+% out3 = [];
+% mapErs = reshape(mapE,length(iyr)*length(izr),1);
+% in = 1;
+% for iz = izr
+%     for iy = iyr
+%         out3 = [out3; iz, iy, mapErs(in)]; in = in + 1;
+%     end
+% end
+% 
+% % If directory 'results' doesn't exist, create it.
+% if (~exist('results','dir'))
+%     mkdir('results');
+% end
+% 
+% % Create a directory for generated data and store the data in three files:
+% % one for time-domain data, one for frequency-domain data, and one for 
+% % spatial-domain data.
+% dt = datestr(now,'dd-mm-YYYY-HH-MM-SS');
+% filename = ['results\anc_4x4_' ALG '_exp' num2str(EXP) '_' dt '\'];
+% mkdir(filename);
+% save([filename 'freq.mat'], 'out');
+% save([filename 'time.mat'], 'out2');
+% save([filename 'mapa.mat'], 'out3');
+
+
+
+
+
