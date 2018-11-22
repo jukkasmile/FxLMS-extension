@@ -1,0 +1,88 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Multichannel Active Noise Control system simulation tool
+% adapt.m
+% Copyright (C) 2018  Stanislaw Wrona <st.wrona@gmail.com>
+%
+% This program is free software; you can redistribute it and/or modify
+% it under the terms of the GNU General Public License as published by
+% the Free Software Foundation; either version 2 of the License, or
+% any later version.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% The function adapt() updates the control filters parameters according to the
+% selected algorithm.
+%
+% Return variables:
+% W        - Updated control filters parameters.
+% ener_r   - Updated estimation of energy of filtered reference signals.
+%
+% Function input variables:
+% W        - Previous control filters parameters.
+% ener_r   - Previous estimation of energy of filtered reference signals.
+% r        - Filtered reference signals.
+% er       - Error signals.
+% n        - Current sample of simulation.
+% alpha    - Leakage coefficient.
+% mu       - Step-size.
+% alg      - Name of the chosen control algorithm.
+
+function [W ener_r] = adapt(W,ener_r,r,er,n,alpha,mu,alg)
+    Lw = length(W); % Length of the control filters.
+    Ns = size(r,2); % Number of error microphones.
+    Na = size(r,3); % Number of secondary sources.
+    effort=0.01;
+
+    % Apply the leakage, if any.
+    W = alpha*W;
+
+    % Collocated control algorithm.
+    if strcmp(alg,'collocated')
+        % Estimate the energy of filtered reference using 1st order inertia.
+        % Later the maximum estimate is used for normalization of the step-size.
+        ener_r = 0.995*ener_r + 0.005 * Lw*squeeze(r(n,:,:,:)).^2;
+        for is = 1:Ns
+            for ia = 1:Na
+%                 W(:,ia) = W(:,ia) - mu/(max(max(max(ener_r)))+1e-6) ...
+%                                     * er(n,is) * reg(r(:,is,ia,ia),n-1,Lw);
+%                 W(:,ia) = (1+mu*effort)*W(:,ia) - mu/(max(max(max(ener_r)))+1e-6) ...
+%                                     * er(n,is) * reg(r(:,is,ia,ia),n-1,Lw);
+                if n<200
+                    W(:,ia) = W(:,ia) - mu/(max(max(max(ener_r)))+1e-6) ...
+                                    * er(n,is) * reg(r(:,is,ia,ia),n-1,Lw);
+                else
+                    W(:,ia) = W(:,ia)+mu*effort*W(:,ia)/norm(W(:,ia)) - mu/(max(max(max(ener_r)))+1e-6) ...
+                                    * er(n,is) * reg(r(:,is,ia,ia),n-1,Lw);
+                end  
+            end
+        end
+    % Mixed control algorithm.
+    elseif strcmp(alg,'mixed')
+        ener_r = 0.995*ener_r + 0.005 * Lw*squeeze(sum(r(n,:,:,:),2)).^2;
+        for ia = 1:Na
+            W(:,ia) = W(:,ia) - mu/(max(max(max(ener_r)))+1e-6) ...
+                                * sum(er(n,:)) ...
+                                * reg(squeeze(sum(r(:,:,ia,ia),2)),n-1,Lw);
+        end
+    % Switched control algorithm.
+    elseif strcmp(alg,'switched')
+        ener_r = 0.995*ener_r + 0.005 * Lw*squeeze(r(n,:,:,:)).^2;
+        Lswi = Lw; % The length of time frame after which the error signal
+                   % is switched to the next error microphone.
+        for is = (floor(mod(n-1,Lswi*Ns)/Lswi)+1)
+            for ia = 1:Na
+                W(:,ia) = W(:,ia) - mu/(max(max(max(ener_r)))+1e-6) ...
+                                    * er(n,is) * reg(r(:,is,ia,ia),n-1,Lw);
+            end
+        end
+    % Decentralized control algorithm.
+    elseif strcmp(alg,'decentralized')
+        ener_r = 0.995*ener_r + 0.005 * Lw*squeeze(r(n,:,:,:)).^2;
+        for ia = 1:Na
+            W(:,ia) = W(:,ia) - mu/(max(max(max(ener_r)))+1e-6) ...
+                                * er(n,ia) * reg(r(:,ia,ia,ia),n-1,Lw);
+        end
+    else
+        disp('Unknown method of adaptation. Fail!');
+        return;
+    end
+end
